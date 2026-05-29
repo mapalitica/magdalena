@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapalítica - Mgd Territorial Engine</title>
+
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" rel="stylesheet" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --sky-grey-blue: #8fa3b0;      
+            --amber-light: #f3c68b;        
+            --vine-red: #b33951;           
+            --vine-green: #586f44;         
+            --institutional-blue: #3b6695; 
+            --accent-blue: #0275d8;        
+            
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(59, 102, 149, 0.15);
+            --blur-strength: 16px;
+            
+            --text-main: #1a1c1e;
+            --text-muted: #6c757d;
+            
+            --font-ui: 'Plus Jakarta Sans', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { width: 100%; height: 100%; font-family: var(--font-ui); background-color: #f1f3f5; overflow: hidden; }
+
+        #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+
+        .glass-ui {
+            background: var(--glass-bg);
+            backdrop-filter: blur(var(--blur-strength));
+            -webkit-backdrop-filter: blur(var(--blur-strength));
+            border: 1px solid var(--glass-border);
+            position: absolute;
+            z-index: 10;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 8px 32px rgba(59, 102, 149, 0.05);
+        }
+
+        /* SIDEBAR COMPACTO */
+        .sidebar {
+            top: 12px; left: 12px; bottom: 12px; width: 58px;
+            border-radius: 12px; display: flex; flex-direction: column; align-items: center; padding: 20px 0; overflow: hidden;
+        }
+
+        .brand-container { 
+            width: 100%; text-align: center; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); 
+        }
+
+        .brand-logo img {
+            display: block; margin: 0 auto; max-width: 38px; height: auto; user-select: none;
+        }
+
+        .nav-stack { list-style: none; width: 100%; display: flex; flex-direction: column; gap: 24px; align-items: center; }
+        .nav-item { width: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; color: var(--sky-grey-blue); transition: color 0.3s ease; }
+        .nav-item .mod-num { font-family: var(--font-mono); font-weight: 500; font-size: 0.85rem; }
+        .nav-item label { display: none; }
+
+        .nav-item.active { color: var(--vine-red); }
+        .nav-item.active::before {
+            content: ''; position: absolute; left: 0; top: 20%; width: 3px; height: 60%; background: var(--vine-red); border-radius: 0 4px 4px 0; box-shadow: 0 0 10px var(--vine-red);
+        }
+
+        /* TARJETA CONTEXTUAL INFERIOR */
+        .context-card { bottom: 12px; left: 82px; right: 12px; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px; }
+        .meta-data { font-family: var(--font-mono); font-size: 0.65rem; color: var(--vine-red); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+        .main-title { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+
+        /* SELECTOR DE MAPA BASE */
+        .basemap-toggle-btn { bottom: 84px; left: 12px; width: 58px; height: 58px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--institutional-blue); font-weight: 700; font-size: 0.75rem; z-index: 10; }
+        
+        .basemap-menu { 
+            bottom: 84px; left: -600px; padding: 8px; border-radius: 12px; display: flex; gap: 6px; z-index: 9; opacity: 0; pointer-events: none;
+            max-width: calc(100vw - 110px); 
+            overflow-x: auto; 
+            scrollbar-width: none;
+        }
+        .basemap-menu::-webkit-scrollbar { display: none; } 
+        .basemap-menu.open { left: 82px; opacity: 1; pointer-events: auto; }
+        
+        .basemap-opt { padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; font-size: 0.75rem; font-weight: 600; color: var(--text-main); cursor: pointer; background: rgba(255,255,255,0.4); transition: all 0.2s ease; white-space: nowrap; }
+        .basemap-opt:hover { background: rgba(255,255,255,0.9); border-color: var(--glass-border); }
+        .basemap-opt.active { background: var(--institutional-blue); color: #fff; border-color: var(--institutional-blue); }
+
+        /* POPUPS NATIVOS */
+        .maplibregl-popup-content {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px !important;
+            font-family: var(--font-ui);
+            color: var(--text-main);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+        }
+
+        @media (min-width: 768px) {
+            .sidebar { width: 280px; align-items: flex-start; padding: 24px; }
+            .brand-container { text-align: left; padding-left: 4px; }
+            .brand-logo img { max-width: 180px; margin: 0; }
+            
+            .nav-stack { align-items: flex-start; gap: 4px; }
+            .nav-item { justify-content: flex-start; padding: 12px 16px; border-radius: 8px; }
+            .nav-item:hover { background: rgba(59, 102, 149, 0.04); }
+            .nav-item label { display: block; margin-left: 12px; font-size: 0.85rem; font-weight: 600; color: var(--text-main); cursor: pointer; }
+            
+            .context-card { top: 12px; right: 12px; left: auto; bottom: auto; width: 340px; }
+            .basemap-toggle-btn { bottom: 24px; left: 296px; }
+            .basemap-menu { bottom: 24px; left: 296px; max-width: none; overflow: visible; }
+            .basemap-menu.open { left: 366px; }
+        }
+
+        .maplibregl-ctrl-group { background: var(--glass-bg) !important; backdrop-filter: blur(var(--blur-strength)); border: 1px solid var(--glass-border) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <aside class="glass-ui sidebar">
+        <div class="brand-container">
+            <picture class="brand-logo">
+                <source media="(min-width: 768px)" srcset="logo.png">
+                <img src="logo_s.png" alt="Logo Municipalidad de Magdalena">
+            </picture>
+        </div>
+
+        <ul class="nav-stack">
+            <li class="nav-item active" data-mod="01"><span class="mod-num">01</span><label>Hábitat y Suelo Urbano</label></li>
+            <li class="nav-item" data-mod="02"><span class="mod-num">02</span><label>Red Rural y Conectividad</label></li>
+            <li class="nav-item" data-mod="03"><span class="mod-num">03</span><label>Infraestructura Crítica</label></li>
+            <li class="nav-item" data-mod="04"><span class="mod-num">04</span><label>Turismo, Patrimonio y Biosfera</label></li>
+        </ul>
+        <div style="margin-top: auto; font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); letter-spacing: 2px;">MAPALÍTICA // 2026</div>
+    </aside>
+
+    <div class="glass-ui basemap-toggle-btn" id="map-btn">MAPA</div>
+
+    <div class="glass-ui basemap-menu" id="map-menu">
+        <div class="basemap-opt active" data-style="claro">Claro Admin</div>
+        <div class="basemap-opt" data-style="oscuro">Oscuro Técnico</div>
+        <div class="basemap-opt" data-style="naturaleza">Naturaleza / Voyager</div>
+        <div class="basemap-opt" data-style="calles_osm">Calles OSM</div>
+        <div class="basemap-opt" data-style="topografico">OpenTopo (Cotas)</div>
+        <div class="basemap-opt" data-style="humanitario">Humanitario HOT</div>
+        <div class="basemap-opt" data-style="satelite">Satélite Google</div>
+    </div>
+
+    <section class="glass-ui context-card">
+        <div class="meta-data" id="card-meta">Cota Fundacional // Vista Plana 2D</div>
+        <div class="main-title" id="card-title">Casco Urbano - Plano de Diagnóstico</div>
+    </section>
+
+    <script>
+        // Diccionario de estilos corregido con "crossOrigin: anonymous" para evitar el bloqueo del navegador
+        const styles = {
+            claro: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+            oscuro: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+            naturaleza: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+            
+            calles_osm: {
+                "version": 8,
+                "sources": {
+                    "osm-official-tiles": {
+                        "type": "raster",
+                        "tiles": [
+                            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        ],
+                        "tileSize": 256,
+                        "crossOrigin": "anonymous", // Bypass CORS
+                        "attribution": "&copy; OpenStreetMap"
+                    }
+                },
+                "layers": [{ "id": "osm-official-layer", "type": "raster", "source": "osm-official-tiles" }]
+            },
+
+            topografico: {
+                "version": 8,
+                "sources": {
+                    "topo-tiles": {
+                        "type": "raster",
+                        "tiles": ["https://a.tile.opentopomap.org/{z}/{x}/{y}.png"],
+                        "tileSize": 256,
+                        "crossOrigin": "anonymous", // Bypass CORS
+                        "attribution": "&copy; OpenTopoMap"
+                    }
+                },
+                "layers": [{ "id": "topo-layer", "type": "raster", "source": "topo-tiles", "minzoom": 0, "maxzoom": 17 }]
+            },
+
+            humanitario: {
+                "version": 8,
+                "sources": {
+                    "hot-tiles": {
+                        "type": "raster",
+                        "tiles": [
+                            "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+                            "https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+                        ],
+                        "tileSize": 256,
+                        "crossOrigin": "anonymous", // Bypass CORS obligatorio para los servidores franceses de HOT
+                        "attribution": "&copy; OpenStreetMap contributors, HOT"
+                    }
+                },
+                "layers": [{ "id": "hot-layer", "type": "raster", "source": "hot-tiles", "minzoom": 0, "maxzoom": 19 }]
+            },
+            
+            satelite: {
+                "version": 8,
+                "sources": {
+                    "google-satellite-tiles": {
+                        "type": "raster",
+                        "tiles": ["https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"],
+                        "tileSize": 256,
+                        "crossOrigin": "anonymous" // Bypass CORS
+                    }
+                },
+                "layers": [{ "id": "google-satellite-layer", "type": "raster", "source": "google-satellite-tiles", "minzoom": 0, "maxzoom": 21 }]
+            }
+        };
+
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: styles.claro,
+            center: [-57.5164, -35.0815], 
+            zoom: 12.5,
+            pitch: 0,              
+            bearing: 0,            
+            dragRotate: false,     
+            touchZoomRotate: false 
+        });
+
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false, showZoom: true }), 'top-right');
+
+        // --- MODELADO VECTORIAL GEOJSON DE ACTIVOS HISTÓRICO-TURÍSTICOS ---
+        const patrimonioTurismoData = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "name": "Templo Parroquial Santa María Magdalena",
+                        "tipo": "Monumento Histórico Nacional",
+                        "desc": "Eje fundacional de la ciudad desde 1776, resguardo del casco urbano en suelo alto."
+                    },
+                    "geometry": { "type": "Point", "coordinates": [-57.5186, -35.0811] }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "name": "Balneario Municipal Magdalena",
+                        "tipo": "Turismo de Ribera",
+                        "desc": "Espacio público principal de vinculación con el Río de la Plata y turismo estival."
+                    },
+                    "geometry": { "type": "Point", "coordinates": [-57.5025, -35.0845] }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "name": "Antiguo Muelle y Saladeros de Atalaya",
+                        "tipo": "Patrimonio Industrial",
+                        "desc": "Testigo del motor exportador de tasajo del siglo XIX y la identidad portuaria."
+                    },
+                    "geometry": { "type": "Point", "coordinates": [-57.5342, -35.0165] }
+                }
+            ]
+        };
+
+        function injectVectorLayers() {
+            if (!map.getSource('turismo-source')) {
+                map.addSource('turismo-source', { type: 'geojson', data: patrimonioTurismoData });
+                map.addLayer({
+                    id: 'turismo-layer', 
+                    type: 'circle', 
+                    source: 'turismo-source',
+                    layout: { 'visibility': document.querySelector('[data-mod="04"]').classList.contains('active') ? 'visible' : 'none' },
+                    paint: { 
+                        'circle-radius': 9, 
+                        'circle-color': '#b33951', 
+                        'circle-stroke-width': 2, 
+                        'circle-stroke-color': '#ffffff' 
+                    }
+                });
+            }
+        }
+
+        map.on('load', () => {
+            injectVectorLayers();
+
+            map.on('click', 'turismo-layer', (e) => {
+                const coordinates = e.features[0].geometry.coordinates.slice();
+                const props = e.features[0].properties;
+
+                new maplibregl.Popup()
+                    .setLngLat(coordinates)
+                    .setHTML(`<strong style="color:#b33951; font-size:0.85rem;">${props.name}</strong><br>
+                              <span style="font-family:monospace; font-size:0.65rem; color:#6c757d;">${props.type}</span><br>
+                              <p style="font-size:0.75rem; margin-top:4px;">${props.desc}</p>`)
+                    .addTo(map);
+            });
+
+            map.on('mouseenter', 'turismo-layer', () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', 'turismo-layer', () => { map.getCanvas().style.cursor = ''; });
+        });
+
+        // --- GESTIÓN DE MÓDULOS DE INTERFAZ ---
+        const items = document.querySelectorAll('.nav-item');
+        const title = document.getElementById('card-title');
+        const meta = document.getElementById('card-meta');
+
+        items.forEach(item => {
+            item.addEventListener('click', () => {
+                items.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                
+                const mod = item.getAttribute('data-mod');
+                
+                if(map.getLayer('turismo-layer')) {
+                    if (mod === '04') {
+                        map.setLayoutProperty('turismo-layer', 'visibility', 'visible');
+                        title.innerText = "Turismo, Activos y Patrimonio";
+                        meta.innerText = "Relevamiento Oficial // turismomagdalena.gob.ar";
+                    } else {
+                        map.setLayoutProperty('turismo-layer', 'visibility', 'none');
+                        
+                        if(mod === '01') { title.innerText = "Plan 136 Lotes con Servicios"; meta.innerText = "Hábitat // Cota Histórica Segura"; }
+                        else if(mod === '02') { title.innerText = "Transitabilidad de Caminos Rurales"; meta.innerText = "Conectividad // Nodos e Interior"; }
+                        else if(mod === '03') { title.innerText = "Redes de Gas y Obras Básicas"; meta.innerText = "Infraestructura // Auditoría Urbana"; }
+                    }
+                }
+            });
+        });
+
+        // --- SELECCIÓN DE MAPAS BASE ---
+        const mapBtn = document.getElementById('map-btn');
+        const mapMenu = document.getElementById('map-menu');
+        const optButtons = document.querySelectorAll('.basemap-opt');
+
+        mapBtn.addEventListener('click', (e) => { e.stopPropagation(); mapMenu.classList.toggle('open'); });
+        
+        optButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                optButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                const styleKey = btn.getAttribute('data-style');
+                map.setStyle(styles[styleKey]);
+                mapMenu.classList.remove('open');
+                
+                map.once('style.load', () => {
+                    injectVectorLayers();
+                });
+            });
+        });
+
+        map.on('click', () => { mapMenu.classList.remove('open'); });
+    </script>
+</body>
+</html>
